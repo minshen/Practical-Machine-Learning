@@ -1,0 +1,141 @@
+---
+title: "Practical Machine Learning Assignment"
+author: "MinShen"
+date: "21 Dec 2015"
+output: html_document
+---
+
+### Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+### Data Sources
+
+The training data for this project are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+### Load Required Library
+```{r}
+
+library(caret)
+library(randomForest)
+
+set.seed(2048)
+options(warn=-1)
+```
+
+
+### Loading Data
+Loading the required libraries and reading in the training and testing datasets, assigning missing values to entries that are currently 'NA' or blank.
+```{r}
+
+
+trainingOrg = read.csv("./data/pml-training.csv", na.strings=c("", "NA", "NULL"))
+
+testingOrg = read.csv("./data/pml-testing.csv", na.strings=c("", "NA", "NULL"))
+
+dim(trainingOrg)
+dim(testingOrg)
+
+
+```
+
+
+### Reducing the number of predictors
+```{r}
+    
+    # Remove variables that we believe have too many NA values.
+    training.dena <- trainingOrg[ , colSums(is.na(trainingOrg)) == 0]
+    dim(training.dena)
+
+    # Remove unrelevant variables There are some unrelevant variables that can be removed as they are unlikely to be related to dependent variable.
+    remove = c('X', 'user_name', 'raw_timestamp_part_1', 'raw_timestamp_part_2', 'cvtd_timestamp', 'new_window', 'num_window')
+    training.dere <- training.dena[, -which(names(training.dena) %in% remove)]
+    dim(training.dere)
+
+    # only numeric variabls can be evaluated in this way.
+    zeroVar= nearZeroVar(training.dere[sapply(training.dere, is.numeric)], saveMetrics = TRUE)
+    training.nonzerovar = training.dere[,zeroVar[, 'nzv']==0]
+    dim(training.nonzerovar)    
+
+    # Remove highly correlated variables 90% (using for example findCorrelation() )
+    # only numeric variabls can be evaluated in this way.
+    corrMatrix <- cor(na.omit(training.nonzerovar[sapply(training.nonzerovar, is.numeric)]))
+    dim(corrMatrix)
+
+    # there are 52 variables.
+    corrDF <- expand.grid(row = 1:52, col = 1:52)
+    corrDF$correlation <- as.vector(corrMatrix)
+    
+    removecor = findCorrelation(corrMatrix, cutoff = .90, verbose = TRUE)
+    training.decor = training.nonzerovar[,-removecor]
+    dim(training.decor)
+
+
+```
+We get 19622 samples and 46 variables.
+
+
+### Split data to training and testing for cross validation.
+
+```{r}
+    
+   inTrain <- createDataPartition(y=training.decor$classe, p=0.7, list=FALSE)
+    training <- training.decor[inTrain,]; testing <- training.decor[-inTrain,]
+    dim(training);dim(testing)
+
+
+```
+We got 13737 samples and 46 variables for training, 5885 samples and 46 variables for testing.
+
+
+### Analysis
+## Using Random Forests Model
+Random forests build lots of bushy trees, and then average them to reduce the variance.
+```{r}
+    
+   set.seed(12345)
+    
+    rf.training=randomForest(classe~.,data=training,ntree=100, importance=TRUE)
+    rf.training
+ 
+    varImpPlot(rf.training,)
+    
+```
+we can see which variables have higher impact on the prediction.
+
+### Out-of Sample Accuracy
+Our Random Forest model shows OOB estimate of error rate: 0.72% for the training data. Now we will predict it for out-of sample accuracy.
+
+Now lets evaluate this tree on the test data.
+```{r}
+   
+    tree.pred=predict(rf.training,testing,type="class")
+    predMatrix = with(testing,table(tree.pred,classe))
+    sum(diag(predMatrix))/sum(as.vector(predMatrix)) # error rate
+ 
+```
+0.99 means we got a very accurate estimate. No. of variables tried at each split: 6. It means every time we only randomly use 6 predictors to grow the tree. Since p = 43, we can have it from 1 to 43, but it seems 6 is enough to get the good result.
+
+### Conclusion and Test Data Submit
+As can be seen from the confusion matrix this random forest model is very accurate.
+```{r}
+
+    pml_write_files = function(x){
+      n = length(x)
+      for(i in 1:n){
+        filename = paste0("problem_id_",i,".txt")
+        write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+      }
+    }
+    
+    answers <- predict(rf.training, testingOrg)
+    answers
+    
+    pml_write_files(answers)
+```
